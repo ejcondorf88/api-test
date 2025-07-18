@@ -1,11 +1,12 @@
 import { Controller, Get, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
+import axios from 'axios';
 import { AppService } from './app.service';
 import { lastValueFrom } from 'rxjs';
+import * as amqp from 'amqplib';
 
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService, private readonly httpService: HttpService) {}
+  constructor(private readonly appService: AppService) {}
 
   @Get()
   getHello(): string {
@@ -14,13 +15,21 @@ export class AppController {
 
   @Post('notificacion')
   async enviarNotificacion(@Body() data: any) {
+    const amqpUrl = 'amqps://tbvqnboe:2We4NDH_v8JhKtmj8edqWm7KDfqTFbcu@fuji.lmq.cloudamqp.com/tbvqnboe';
+    const queue = 'notificaciones';
     try {
-      await lastValueFrom(this.httpService.post('http://localhost:8001/notifiaciotn', data));
-      return { mensaje: 'Notificación enviada' };
+      const conn = await amqp.connect(amqpUrl);
+      const channel = await conn.createChannel();
+      await channel.assertQueue(queue, { durable: true });
+      channel.sendToQueue(queue, Buffer.from(JSON.stringify(data)), { persistent: true });
+      await channel.close();
+      await conn.close();
+      return { mensaje: 'Notificación enviada a RabbitMQ' };
     } catch (error: any) {
+      console.error('Error al enviar a RabbitMQ:', error.message);
       throw new HttpException(
-        error.response?.data || 'Error enviando notificación',
-        error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        error.message || 'Error enviando notificación',
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
